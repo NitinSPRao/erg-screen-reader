@@ -10,23 +10,19 @@ Author: Nitin Rao
 import argparse
 import asyncio
 import base64
-import io
 import mimetypes
 import os
-import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
-from google.cloud import vision
-from google.cloud.vision_v1 import types
 from openai import AsyncOpenAI
 
 # Local imports
-from models import ReceiptDetails
-from prompt_template import BASIC_PROMPT
+from .models import ReceiptDetails, IntervalReceiptDetails
+from .prompt_template import BASIC_PROMPT, INTERVAL_PROMPT
+from .google_sheets_service import GoogleSheetsService
 
 # Load environment variables
 load_dotenv()
@@ -37,14 +33,13 @@ class ErgScreenReader:
     Main class for processing ergometer screen images and extracting workout data.
     
     This class provides methods to extract workout data from ergometer screen images
-    using either OCR (Google Cloud Vision) or AI-powered image analysis (OpenAI).
-    The extracted data includes summary statistics and detailed split breakdowns.
+    using AI-powered image analysis (OpenAI). The extracted data includes summary 
+    statistics and detailed split/interval breakdowns.
     """
     
     def __init__(self):
         """Initialize the ErgScreenReader with necessary clients."""
         self.openai_client = AsyncOpenAI()
-        self.vision_client = vision.ImageAnnotatorClient()
     
     async def extract_workout_data_ai(self, image_path: str, model: str = "gpt-4o") -> ReceiptDetails:
         """
@@ -92,190 +87,55 @@ class ErgScreenReader:
         
         return response.output_parsed
     
-    def extract_workout_data_ocr(self, image_path: str) -> tuple[dict, list]:
+    async def extract_interval_workout_data_ai(self, image_path: str, model: str = "gpt-4o") -> IntervalReceiptDetails:
         """
-        Extract workout data from an ergometer image using OCR.
+        Extract interval workout data from an ergometer image using OpenAI's AI vision.
         
         Args:
             image_path (str): Path to the ergometer screen image
+            model (str): OpenAI model to use for image analysis
             
         Returns:
-            tuple[dict, list]: Summary data and list of split data
+            IntervalReceiptDetails: Structured interval workout data including summary and intervals
             
         Raises:
             FileNotFoundError: If the image file doesn't exist
-            Exception: If OCR processing fails
+            ValueError: If the image format is not supported
         """
-        # Read image content
-        image_content = self._read_image_file(image_path)
+        # Validate image file exists
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Image file not found: {image_path}")
         
-        # Extract text using Google Cloud Vision
-        extracted_text = self._perform_ocr(image_content)
+        # Determine image MIME type for data URI
+        mime_type, _ = mimetypes.guess_type(image_path)
+        if not mime_type:
+            raise ValueError(f"Could not determine MIME type for: {image_path}")
         
-        # Parse the extracted text into structured data
-        summary, splits = self._parse_ocr_text(extracted_text)
+        # Read and encode image as base64
+        image_bytes = Path(image_path).read_bytes()
+        b64_image = base64.b64encode(image_bytes).decode("utf-8")
+        image_data_url = f"data:{mime_type};base64,{b64_image}"
         
-        return summary, splits
-    
-    def _read_image_file(self, image_path: str) -> bytes:
-        """
-        Read image file and return its binary content.
-        
-        Args:
-            image_path (str): Path to the image file
-            
-        Returns:
-            bytes: Binary content of the image file
-        """
-        with io.open(image_path, 'rb') as image_file:
-            return image_file.read()
-    
-    def _perform_ocr(self, image_content: bytes) -> str:
-        """
-        Perform OCR on image content using Google Cloud Vision.
-        
-        Args:
-            image_content (bytes): Binary image content
-            
-        Returns:
-            str: Extracted text from the image
-            
-        Raises:
-            Exception: If OCR processing fails
-        """
-        image = types.Image(content=image_content)
-        response = self.vision_client.text_detection(image=image)
-        
-        if response.error.message:
-            raise Exception(f"OCR processing failed: {response.error.message}")
-        
-        texts = response.text_annotations
-        if not texts:
-            print("No text detected in image")
-            return ""
-        
-        extracted_text = texts[0].description
-        print("Detected text:")
-        print(extracted_text)
-        
-        return extracted_text
-    
-    def _parse_ocr_text(self, extracted_text: str) -> tuple[dict, list]:
-        """
-        Parse OCR-extracted text into structured workout data.
-        
-        Args:
-            extracted_text (str): Raw text extracted from the image
-            
-        Returns:
-            tuple[dict, list]: Summary data and list of split data
-        """
-        lines = [line.strip() for line in extracted_text.strip().split('\n') if line.strip()]
-        
-        # Extract summary data
-        summary = self._extract_summary_data(lines)
-        
-        # Extract split data
-        splits = self._extract_split_data(lines)
-        
-        return summary, splits
-    
-    def _extract_summary_data(self, lines: list[str]) -> dict:
-        """
-        Extract summary workout data from OCR text lines.
-        
-        Args:
-            lines (list[str]): Lines of text from the image
-            
-        Returns:
-            dict: Summary data with total time, distance, average split, rate, and HR
-        """
-        # Pattern for summary row: e.g., "6:29.1 2000 1:37.2 34 188"
-        summary_pattern = re.compile(r"^(\d+:\d{2}\.\d)\s+(\d+)\s+(\d{1}:\d{2}\.\d)\s+(\d+)\s+(\d+)$")
-        
-        for line in lines:
-            match = summary_pattern.match(line)
-            if match:
-                return {
-                    'total_time': match.group(1),
-                    'total_distance': match.group(2),
-                    'average_split': match.group(3),
-                    'average_rate': match.group(4),
-                    'average_hr': match.group(5)
+        # Process image with OpenAI
+        response = await self.openai_client.responses.parse(
+            model=model,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": INTERVAL_PROMPT},
+                        {"type": "input_image", "image_url": image_data_url},
+                    ],
                 }
+            ],
+            text_format=IntervalReceiptDetails,
+        )
         
-        return {}
+        return response.output_parsed
     
-    def _extract_split_data(self, lines: list[str]) -> list[dict]:
-        """
-        Extract split workout data from OCR text lines.
-        
-        Args:
-            lines (list[str]): Lines of text from the image
-            
-        Returns:
-            list[dict]: List of split data dictionaries
-        """
-        splits = []
-        split_number = 1
-        
-        # Define patterns for different split formats
-        split_patterns = [
-            # Colon-start format: e.g., ":48.2 250 1:36.4 36 177"
-            re.compile(r"^:(\d{2}\.\d)\s+(\d+)\s+(\d{1}:\d{2}[\.,]\d)\s*(\d+)?\s*(\d+)?"),
-            # Full-time format: e.g., "1:34.6 500 1:34.6 30 181"
-            re.compile(r"^(\d{1}:\d{2}\.\d)\s+(\d+)\s+(\d{1}:\d{2}\.\d)\s+(\d+)\s+(\d+)$")
-        ]
-        
-        for line in lines:
-            split_data = self._parse_split_line(line, split_patterns, split_number)
-            if split_data:
-                splits.append(split_data)
-                split_number += 1
-            else:
-                print(f"Unmatched split line: {line}")
-        
-        return splits
+
     
-    def _parse_split_line(self, line: str, patterns: list, split_number: int) -> dict | None:
-        """
-        Parse a single split line using the provided patterns.
-        
-        Args:
-            line (str): Text line to parse
-            patterns (list): List of regex patterns to try
-            split_number (int): Current split number
-            
-        Returns:
-            dict | None: Parsed split data or None if no match
-        """
-        for pattern in patterns:
-            match = pattern.match(line)
-            if match:
-                if pattern.pattern.startswith('^:'):
-                    # Colon-start format
-                    return {
-                        'split_number': str(split_number),
-                        'split_time': match.group(1),
-                        'split_distance': match.group(2),
-                        'split_pace': match.group(3).replace(',', '.'),
-                        'rate': match.group(4) if match.group(4) else '',
-                        'hr': match.group(5) if match.group(5) else ''
-                    }
-                else:
-                    # Full-time format
-                    return {
-                        'split_number': str(split_number),
-                        'split_time': match.group(1),
-                        'split_distance': match.group(2),
-                        'split_pace': match.group(3),
-                        'rate': match.group(4),
-                        'hr': match.group(5)
-                    }
-        
-        return None
-    
-    def create_excel_report(self, summary: dict, splits: list, output_filename: str = "output.xlsx") -> None:
+    def create_excel_report(self, summary: dict, splits: list, output_filename: str = "output.xlsx", name: str = "John C150") -> None:
         """
         Create a well-formatted Excel report with workout data.
         
@@ -283,20 +143,93 @@ class ErgScreenReader:
             summary (dict): Summary workout data
             splits (list): List of split data dictionaries
             output_filename (str): Name of the output Excel file
+            name (str): Name of the rower (default: "John C150")
         """
         # Convert Pydantic models to dictionaries if needed
         summary_dict = self._convert_to_dict(summary)
         splits_dict = [self._convert_to_dict(split) for split in splits] if splits else []
         
+        # Check if file exists and load existing data
+        existing_summary_data = None
+        existing_sheets_data = {}
+        if os.path.exists(output_filename):
+            try:
+                # Read all existing data before we start writing
+                excel_file = pd.ExcelFile(output_filename)
+                existing_summary_data = pd.read_excel(output_filename, sheet_name='Summary')
+                print(f"Found existing summary data with {len(existing_summary_data)} rows")
+                
+                # Store all existing sheets data
+                for sheet_name in excel_file.sheet_names:
+                    if sheet_name != 'Summary':
+                        existing_sheets_data[sheet_name] = pd.read_excel(output_filename, sheet_name=sheet_name)
+                        print(f"Found existing sheet: {sheet_name}")
+            except Exception as e:
+                print(f"Could not read existing data: {e}")
+        
         # Create Excel file with multiple sheets
-        with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
-            self._write_summary_sheet(writer, summary_dict)
-            self._write_splits_sheet(writer, splits_dict)
+        with pd.ExcelWriter(output_filename, engine='openpyxl', mode='w') as writer:
+            self._write_summary_sheet(writer, summary_dict, name, existing_summary_data)
+            self._write_splits_sheet(writer, splits_dict, name)
+            
+            # Write back all existing sheets (except the ones we just wrote)
+            for sheet_name, sheet_data in existing_sheets_data.items():
+                if sheet_name != f"{name} Split Breakdown":
+                    sheet_data.to_excel(writer, sheet_name=sheet_name, index=False)
+                    print(f"Preserved existing sheet: {sheet_name}")
         
         # Print success message
         print(f"Excel report created: {output_filename}")
         print(f"  - Summary sheet: {len(summary_dict) if summary_dict else 0} metrics")
-        print(f"  - Splits sheet: {len(splits_dict)} splits")
+        print(f"  - {name} Split Breakdown sheet: {len(splits_dict)} splits")
+    
+    def create_interval_excel_report(self, summary: dict, intervals: list, output_filename: str = "interval_output.xlsx", name: str = "John C150") -> None:
+        """
+        Create a well-formatted Excel report with interval workout data.
+        
+        Args:
+            summary (dict): Summary interval workout data
+            intervals (list): List of interval data dictionaries
+            output_filename (str): Name of the output Excel file
+            name (str): Name of the rower (default: "John C150")
+        """
+        # Convert Pydantic models to dictionaries if needed
+        summary_dict = self._convert_to_dict(summary)
+        intervals_dict = [self._convert_to_dict(interval) for interval in intervals] if intervals else []
+        
+        # Check if file exists and load existing data
+        existing_summary_data = None
+        existing_sheets_data = {}
+        if os.path.exists(output_filename):
+            try:
+                # Read all existing data before we start writing
+                excel_file = pd.ExcelFile(output_filename)
+                existing_summary_data = pd.read_excel(output_filename, sheet_name='Summary')
+                print(f"Found existing summary data with {len(existing_summary_data)} rows")
+                
+                # Store all existing sheets data
+                for sheet_name in excel_file.sheet_names:
+                    if sheet_name != 'Summary':
+                        existing_sheets_data[sheet_name] = pd.read_excel(output_filename, sheet_name=sheet_name)
+                        print(f"Found existing sheet: {sheet_name}")
+            except Exception as e:
+                print(f"Could not read existing data: {e}")
+        
+        # Create Excel file with multiple sheets
+        with pd.ExcelWriter(output_filename, engine='openpyxl', mode='w') as writer:
+            self._write_interval_summary_sheet(writer, summary_dict, name, existing_summary_data)
+            self._write_intervals_sheet(writer, intervals_dict, name)
+            
+            # Write back all existing sheets (except the ones we just wrote)
+            for sheet_name, sheet_data in existing_sheets_data.items():
+                if sheet_name != f"{name} Interval Breakdown":
+                    sheet_data.to_excel(writer, sheet_name=sheet_name, index=False)
+                    print(f"Preserved existing sheet: {sheet_name}")
+        
+        # Print success message
+        print(f"Interval Excel report created: {output_filename}")
+        print(f"  - Summary sheet: {len(summary_dict) if summary_dict else 0} metrics")
+        print(f"  - {name} Interval Breakdown sheet: {len(intervals_dict)} intervals")
     
     def _convert_to_dict(self, obj) -> dict:
         """
@@ -317,44 +250,55 @@ class ErgScreenReader:
         else:
             return {}
     
-    def _write_summary_sheet(self, writer: pd.ExcelWriter, summary_dict: dict) -> None:
+    def _write_summary_sheet(self, writer: pd.ExcelWriter, summary_dict: dict, name: str = "John C150", existing_data: pd.DataFrame = None) -> None:
         """
-        Write summary data to Excel sheet.
+        Write summary data to Excel sheet in horizontal format, appending to existing data if present.
         
         Args:
             writer (pd.ExcelWriter): Excel writer object
             summary_dict (dict): Summary data dictionary
+            name (str): Name of the rower
+            existing_data (pd.DataFrame): Existing summary data to append to
         """
         if not summary_dict:
             return
         
-        summary_data = {
-            'Metric': [
-                'Total Distance (m)',
-                'Total Time',
-                'Average Split',
-                'Average Rate (spm)',
-                'Average HR'
-            ],
-            'Value': [
-                summary_dict.get('total_distance', ''),
-                summary_dict.get('total_time', ''),
-                summary_dict.get('average_split', ''),
-                summary_dict.get('average_rate', ''),
-                summary_dict.get('average_hr', 'N/A') if summary_dict.get('average_hr') else 'N/A'
-            ]
+        # Create horizontal summary with name as first column
+        new_summary_data = {
+            'Name': [name],
+            'Total Distance (m)': [summary_dict.get('total_distance', '')],
+            'Total Time': [summary_dict.get('total_time', '')],
+            'Average Split': [summary_dict.get('average_split', '')],
+            'Average Rate (spm)': [summary_dict.get('average_rate', '')],
+            'Average HR': [summary_dict.get('average_hr', '') if summary_dict.get('average_hr') is not None else '']
         }
         
-        summary_df = pd.DataFrame(summary_data)
-        summary_df.to_excel(writer, sheet_name='Summary', index=False)
+        new_summary_df = pd.DataFrame(new_summary_data)
+        
+        # If existing data exists, append the new row
+        if existing_data is not None:
+            # Ensure columns match
+            for col in new_summary_df.columns:
+                if col not in existing_data.columns:
+                    existing_data[col] = 'N/A'
+            
+            # Append new data to existing data
+            combined_df = pd.concat([existing_data, new_summary_df], ignore_index=True)
+            print(f"Appended new workout data for {name} to existing summary")
+        else:
+            combined_df = new_summary_df
+            print(f"Created new summary sheet with workout data for {name}")
+        
+        combined_df.to_excel(writer, sheet_name='Summary', index=False)
     
-    def _write_splits_sheet(self, writer: pd.ExcelWriter, splits_dict: list) -> None:
+    def _write_splits_sheet(self, writer: pd.ExcelWriter, splits_dict: list, name: str = "John C150") -> None:
         """
-        Write splits data to Excel sheet.
+        Write splits data to Excel sheet with person's name in title.
         
         Args:
             writer (pd.ExcelWriter): Excel writer object
             splits_dict (list): List of split data dictionaries
+            name (str): Name of the rower
         """
         if not splits_dict:
             return
@@ -367,11 +311,83 @@ class ErgScreenReader:
                 'Time': split.get('split_time', ''),
                 'Pace': split.get('split_pace', ''),
                 'Rate (spm)': split.get('rate', ''),
-                'HR': split.get('hr', 'N/A') if split.get('hr') else 'N/A'
+                'HR': split.get('hr', '') if split.get('hr') is not None else ''
             })
         
         splits_df = pd.DataFrame(splits_data)
-        splits_df.to_excel(writer, sheet_name='Splits', index=False)
+        sheet_name = f"{name} Split Breakdown"
+        splits_df.to_excel(writer, sheet_name=sheet_name, index=False)
+    
+    def _write_interval_summary_sheet(self, writer: pd.ExcelWriter, summary_dict: dict, name: str = "John C150", existing_data: pd.DataFrame = None) -> None:
+        """
+        Write interval summary data to Excel sheet in horizontal format, appending to existing data if present.
+        
+        Args:
+            writer (pd.ExcelWriter): Excel writer object
+            summary_dict (dict): Summary data dictionary
+            name (str): Name of the rower
+            existing_data (pd.DataFrame): Existing summary data to append to
+        """
+        if not summary_dict:
+            return
+        
+        # Create horizontal summary with name as first column
+        new_summary_data = {
+            'Name': [name],
+            'Total Distance (m)': [summary_dict.get('total_distance', '')],
+            'Total Time': [summary_dict.get('total_time', '')],
+            'Average Split': [summary_dict.get('average_split', '')],
+            'Average Rate (spm)': [summary_dict.get('average_rate', '')],
+            'Average HR': [summary_dict.get('average_hr', '') if summary_dict.get('average_hr') is not None else ''],
+            'Total Intervals': [summary_dict.get('total_intervals', '')],
+            'Rest Time': [summary_dict.get('rest_time', '') if summary_dict.get('rest_time') else '']
+        }
+        
+        new_summary_df = pd.DataFrame(new_summary_data)
+        
+        # If existing data exists, append the new row
+        if existing_data is not None:
+            # Ensure columns match
+            for col in new_summary_df.columns:
+                if col not in existing_data.columns:
+                    existing_data[col] = 'N/A'
+            
+            # Append new data to existing data
+            combined_df = pd.concat([existing_data, new_summary_df], ignore_index=True)
+            print(f"Appended new interval workout data for {name} to existing summary")
+        else:
+            combined_df = new_summary_df
+            print(f"Created new summary sheet with interval workout data for {name}")
+        
+        combined_df.to_excel(writer, sheet_name='Summary', index=False)
+    
+    def _write_intervals_sheet(self, writer: pd.ExcelWriter, intervals_dict: list, name: str = "John C150") -> None:
+        """
+        Write intervals data to Excel sheet with person's name in title.
+        
+        Args:
+            writer (pd.ExcelWriter): Excel writer object
+            intervals_dict (list): List of interval data dictionaries
+            name (str): Name of the rower
+        """
+        if not intervals_dict:
+            return
+        
+        intervals_data = []
+        for interval in intervals_dict:
+            intervals_data.append({
+                'Interval #': interval.get('interval_number', ''),
+                'Distance (m)': interval.get('interval_distance', ''),
+                'Time': interval.get('interval_time', ''),
+                'Pace': interval.get('interval_pace', ''),
+                'Rate (spm)': interval.get('rate', ''),
+                'HR': interval.get('hr', '') if interval.get('hr') is not None else '',
+                'Rest Time': interval.get('rest_time', '') if interval.get('rest_time') else ''
+            })
+        
+        intervals_df = pd.DataFrame(intervals_data)
+        sheet_name = f"{name} Interval Breakdown"
+        intervals_df.to_excel(writer, sheet_name=sheet_name, index=False)
 
 
 def validate_environment() -> None:
@@ -400,9 +416,12 @@ async def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s erg.png                    # Use OCR processing
-  %(prog)s erg.png --engine openai    # Use AI processing
-  %(prog)s erg.png --output my_workout.xlsx  # Custom output filename
+  %(prog)s erg.png                                    # Process regular workout with AI
+  %(prog)s erg.png --workout-type interval            # Process as interval workout with AI
+  %(prog)s erg.png --output my_workout.xlsx           # Custom output filename
+  %(prog)s erg.png --name "Jane Smith"                # Custom rower name
+  %(prog)s erg.png --sheets                           # Create Google Sheet instead of Excel
+  %(prog)s erg.png --sheets --sheet-name "Weekly Training" # Custom Google Sheet name
         """
     )
     
@@ -415,9 +434,9 @@ Examples:
     parser.add_argument(
         "--engine",
         type=str,
-        choices=["ocr", "openai"],
-        default="ocr",
-        help="Processing engine to use (default: ocr)"
+        choices=["openai"],
+        default="openai",
+        help="Processing engine to use (default: openai)"
     )
     
     parser.add_argument(
@@ -427,33 +446,102 @@ Examples:
         help="Output Excel filename (default: output.xlsx)"
     )
     
+    parser.add_argument(
+        "--workout-type",
+        type=str,
+        choices=["regular", "interval"],
+        default="regular",
+        help="Type of workout to process (default: regular)"
+    )
+    
+    parser.add_argument(
+        "--name",
+        type=str,
+        default="John C150",
+        help="Name of the rower (default: John C150)"
+    )
+    
+    parser.add_argument(
+        "--sheets",
+        action="store_true",
+        help="Create a Google Sheet instead of Excel file"
+    )
+    
+    parser.add_argument(
+        "--sheet-name",
+        type=str,
+        help="Name for the Google Sheet (defaults to 'Erg Screen Reader <date/time>')"
+    )
+    
     args = parser.parse_args()
     
     # Initialize the reader
     reader = ErgScreenReader()
     
     try:
-        # Process the image based on selected engine
-        if args.engine == "openai":
-            # Validate environment for AI processing
-            validate_environment()
+        # Validate environment for AI processing
+        validate_environment()
+        
+        # Process the image based on workout type
+        if args.workout_type == "interval":
+            print(f"Processing interval workout image with AI engine: {args.image_path}")
+            receipt_details = await reader.extract_interval_workout_data_ai(args.image_path)
             
-            print(f"Processing image with AI engine: {args.image_path}")
+            summary = receipt_details.summary
+            intervals = list(receipt_details.intervals)
+            
+            # Display extracted data
+            print(f"\nExtracted Interval Summary: {summary}")
+            print(f"Extracted Intervals: {intervals}")
+            
+            # Generate report based on output type
+            if args.sheets:
+                # Create Google Sheet
+                sheets_service = GoogleSheetsService()
+                sheet_name = args.sheet_name or sheets_service.generate_sheet_name(args.name)
+                
+                print(f"Creating Google Sheet: {sheet_name}")
+                spreadsheet_id = sheets_service.create_spreadsheet(sheet_name)
+                
+                print("Populating Google Sheet with interval workout data...")
+                sheets_service.populate_interval_workout(spreadsheet_id, summary, intervals, args.name)
+                
+                sheet_url = sheets_service.get_spreadsheet_url(spreadsheet_id)
+                print(f"Google Sheet created successfully: {sheet_url}")
+            else:
+                # Generate interval Excel report
+                reader.create_interval_excel_report(summary, intervals, args.output, args.name)
+                print(f"Excel report created: {args.output}")
+            
+        else:  # Regular workout
+            print(f"Processing regular workout image with AI engine: {args.image_path}")
             receipt_details = await reader.extract_workout_data_ai(args.image_path)
             
             summary = receipt_details.summary
             splits = list(receipt_details.splits)
             
-        else:  # OCR engine
-            print(f"Processing image with OCR engine: {args.image_path}")
-            summary, splits = reader.extract_workout_data_ocr(args.image_path)
-        
-        # Display extracted data
-        print(f"\nExtracted Summary: {summary}")
-        print(f"Extracted Splits: {splits}")
-        
-        # Generate Excel report
-        reader.create_excel_report(summary, splits, args.output)
+            # Display extracted data
+            print(f"\nExtracted Summary: {summary}")
+            print(f"Extracted Splits: {splits}")
+            
+            # Generate report based on output type
+            if args.sheets:
+                # Create Google Sheet
+                sheets_service = GoogleSheetsService()
+                sheet_name = args.sheet_name or sheets_service.generate_sheet_name(args.name)
+                
+                print(f"Creating Google Sheet: {sheet_name}")
+                spreadsheet_id = sheets_service.create_spreadsheet(sheet_name)
+                
+                print("Populating Google Sheet with regular workout data...")
+                sheets_service.populate_regular_workout(spreadsheet_id, summary, splits, args.name)
+                
+                sheet_url = sheets_service.get_spreadsheet_url(spreadsheet_id)
+                print(f"Google Sheet created successfully: {sheet_url}")
+            else:
+                # Generate Excel report
+                reader.create_excel_report(summary, splits, args.output, args.name)
+                print(f"Excel report created: {args.output}")
         
     except Exception as e:
         print(f"Error processing image: {e}")
