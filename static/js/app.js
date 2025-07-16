@@ -91,6 +91,28 @@ function clearFile() {
     document.getElementById('fileInfo').classList.add('d-none');
 }
 
+// Choice Button Handlers
+function setupChoiceButtons() {
+    // Handle all choice button clicks
+    document.querySelectorAll('.choice-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            const input = this.querySelector('input[type="radio"]');
+            if (input) {
+                // Remove active class from siblings
+                const siblings = this.parentElement.querySelectorAll('.choice-btn');
+                siblings.forEach(sibling => sibling.classList.remove('active'));
+                
+                // Add active class to clicked button
+                this.classList.add('active');
+                
+                // Trigger the radio button
+                input.checked = true;
+                input.dispatchEvent(new Event('change'));
+            }
+        });
+    });
+}
+
 // Form Handlers
 function setupFormHandlers() {
     const form = document.getElementById('uploadForm');
@@ -99,6 +121,9 @@ function setupFormHandlers() {
     const sheetActionOptions = document.querySelectorAll('input[name="sheet_action"]');
     
     form.addEventListener('submit', handleFormSubmit);
+    
+    // Setup choice button handlers
+    setupChoiceButtons();
     
     spreadsheetOptions.forEach(option => {
         option.addEventListener('change', handleSpreadsheetOptionChange);
