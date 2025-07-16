@@ -83,3 +83,6 @@ oauth_credentials.json
 *.tmp
 *.temp
 *.log
+*.pyc
+__pycache__/
+*.png
