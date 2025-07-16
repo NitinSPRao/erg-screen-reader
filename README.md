@@ -113,12 +113,6 @@ python src/erg_screen_reader.py workout.png --sheets --name "John C150"
 
 # Add to existing spreadsheet (appends to summary and creates new breakdown sheet)
 python src/erg_screen_reader.py workout2.png --name "Mike Johnson" --output existing_workouts.xlsx
-
-### Testing
-
-```bash
-# Test regular workout processing
-python src/test_structured_parsing.py
 ```
 
 ## Data Structure
