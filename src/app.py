@@ -58,6 +58,7 @@ def index():
 def upload_file():
     """Handle file upload and processing."""
     try:
+        print("DEBUG - Starting upload_file function")
         # Check if file was uploaded
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
@@ -76,12 +77,25 @@ def upload_file():
         spreadsheet_option = request.form.get('spreadsheet_option', 'new')
         existing_filename = request.form.get('existing_filename', '')
         sheet_name = request.form.get('sheet_name', '')
+        sheet_action = request.form.get('sheet_action', 'new')
+        sheet_url = request.form.get('sheet_url', '')
+        
+        # Debug: Print form data
+        print(f"DEBUG - Form data received:")
+        print(f"  output_format: {output_format}")
+        print(f"  sheet_action: {sheet_action}")
+        print(f"  sheet_url: {sheet_url}")
+        print(f"  sheet_name: {sheet_name}")
+        print(f"  name: {name}")
         
         # Save uploaded file
+        print("DEBUG - Saving uploaded file...")
         filename = secure_filename(file.filename)
         unique_filename = get_unique_filename(filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        print(f"DEBUG - File path: {filepath}")
         file.save(filepath)
+        print("DEBUG - File saved successfully")
         
         # Determine output filename
         if spreadsheet_option == 'new':
@@ -96,23 +110,52 @@ def upload_file():
         output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
         
         # Process the image
+        print("DEBUG - Starting image processing...")
         reader = ErgScreenReader()
-        sheet_url = None
+        result_sheet_url = None
+        
+        print(f"DEBUG - Workout type: {workout_type}")
         
         if workout_type == 'interval':
             # Process interval workout
-            receipt_details = asyncio.run(reader.extract_interval_workout_data_ai(filepath))
-            summary = receipt_details.summary
-            intervals = list(receipt_details.intervals)
+            print("DEBUG - Processing interval workout...")
+            try:
+                receipt_details = asyncio.run(reader.extract_interval_workout_data_ai(filepath))
+                summary = receipt_details.summary
+                intervals = list(receipt_details.intervals)
+                print("DEBUG - Interval workout processing completed successfully")
+            except Exception as e:
+                print(f"DEBUG - Error processing interval workout: {str(e)}")
+                return jsonify({'error': f'Error processing interval workout: {str(e)}'}), 500
             
             if output_format == 'sheets':
-                # Create Google Sheet
                 sheets_service = GoogleSheetsService()
-                final_sheet_name = sheet_name or sheets_service.generate_sheet_name(name)
                 
-                spreadsheet_id = sheets_service.create_spreadsheet(final_sheet_name)
-                sheets_service.populate_interval_workout(spreadsheet_id, summary, intervals, name)
-                sheet_url = sheets_service.get_spreadsheet_url(spreadsheet_id)
+                print(f"DEBUG - Google Sheets logic:")
+                print(f"  sheet_action: '{sheet_action}'")
+                print(f"  sheet_url: '{sheet_url}'")
+                print(f"  Condition (sheet_action == 'existing' and sheet_url): {sheet_action == 'existing' and sheet_url}")
+                
+                if sheet_action == 'existing' and sheet_url:
+                    # Add to existing Google Sheet
+                    print("DEBUG - Taking EXISTING sheet path")
+                    try:
+                        spreadsheet_id = sheets_service.extract_spreadsheet_id_from_url(sheet_url)
+                        print(f"DEBUG - Extracted spreadsheet ID: {spreadsheet_id}")
+                        sheets_service.append_interval_to_existing_sheet(spreadsheet_id, summary, intervals, name)
+                        result_sheet_url = sheets_service.get_spreadsheet_url(spreadsheet_id)
+                        final_sheet_name = "Existing Sheet (Updated)"
+                    except Exception as e:
+                        print(f"DEBUG - Error in existing sheet path: {str(e)}")
+                        return jsonify({'error': f'Error accessing existing sheet: {str(e)}'}), 400
+                else:
+                    # Create new Google Sheet
+                    print("DEBUG - Taking NEW sheet path")
+                    final_sheet_name = sheet_name or sheets_service.generate_sheet_name(name)
+                    print(f"DEBUG - Creating new sheet with name: {final_sheet_name}")
+                    spreadsheet_id = sheets_service.create_spreadsheet(final_sheet_name)
+                    sheets_service.populate_interval_workout(spreadsheet_id, summary, intervals, name)
+                    result_sheet_url = sheets_service.get_spreadsheet_url(spreadsheet_id)
             else:
                 # Create Excel report
                 reader.create_interval_excel_report(summary, intervals, output_path, name)
@@ -132,18 +175,44 @@ def upload_file():
             }
         else:
             # Process regular workout
-            receipt_details = asyncio.run(reader.extract_workout_data_ai(filepath))
-            summary = receipt_details.summary
-            splits = list(receipt_details.splits)
+            print("DEBUG - Processing regular workout...")
+            try:
+                receipt_details = asyncio.run(reader.extract_workout_data_ai(filepath))
+                summary = receipt_details.summary
+                splits = list(receipt_details.splits)
+                print("DEBUG - Regular workout processing completed successfully")
+            except Exception as e:
+                print(f"DEBUG - Error processing regular workout: {str(e)}")
+                return jsonify({'error': f'Error processing regular workout: {str(e)}'}), 500
             
             if output_format == 'sheets':
-                # Create Google Sheet
                 sheets_service = GoogleSheetsService()
-                final_sheet_name = sheet_name or sheets_service.generate_sheet_name(name)
                 
-                spreadsheet_id = sheets_service.create_spreadsheet(final_sheet_name)
-                sheets_service.populate_regular_workout(spreadsheet_id, summary, splits, name)
-                sheet_url = sheets_service.get_spreadsheet_url(spreadsheet_id)
+                print(f"DEBUG - Regular workout Google Sheets logic:")
+                print(f"  sheet_action: '{sheet_action}'")
+                print(f"  sheet_url: '{sheet_url}'")
+                print(f"  Condition (sheet_action == 'existing' and sheet_url): {sheet_action == 'existing' and sheet_url}")
+                
+                if sheet_action == 'existing' and sheet_url:
+                    # Add to existing Google Sheet
+                    print("DEBUG - Taking EXISTING sheet path for regular workout")
+                    try:
+                        spreadsheet_id = sheets_service.extract_spreadsheet_id_from_url(sheet_url)
+                        print(f"DEBUG - Extracted spreadsheet ID: {spreadsheet_id}")
+                        sheets_service.append_to_existing_sheet(spreadsheet_id, summary, splits, name)
+                        result_sheet_url = sheets_service.get_spreadsheet_url(spreadsheet_id)
+                        final_sheet_name = "Existing Sheet (Updated)"
+                    except Exception as e:
+                        print(f"DEBUG - Error in existing sheet path: {str(e)}")
+                        return jsonify({'error': f'Error accessing existing sheet: {str(e)}'}), 400
+                else:
+                    # Create new Google Sheet
+                    print("DEBUG - Taking NEW sheet path for regular workout")
+                    final_sheet_name = sheet_name or sheets_service.generate_sheet_name(name)
+                    print(f"DEBUG - Creating new sheet with name: {final_sheet_name}")
+                    spreadsheet_id = sheets_service.create_spreadsheet(final_sheet_name)
+                    sheets_service.populate_regular_workout(spreadsheet_id, summary, splits, name)
+                    result_sheet_url = sheets_service.get_spreadsheet_url(spreadsheet_id)
             else:
                 # Create Excel report
                 reader.create_excel_report(summary, splits, output_path, name)
@@ -168,9 +237,9 @@ def upload_file():
             'data': result_data
         }
         
-        if sheet_url:
+        if result_sheet_url:
             response_data['message'] = f'Workout processed successfully! Google Sheet created: {final_sheet_name}'
-            response_data['sheet_url'] = sheet_url
+            response_data['sheet_url'] = result_sheet_url
         else:
             response_data['message'] = f'Workout processed successfully! Excel file: {output_filename}'
             response_data['output_filename'] = output_filename
@@ -178,6 +247,10 @@ def upload_file():
         return jsonify(response_data)
         
     except Exception as e:
+        print(f"DEBUG - Exception caught: {type(e).__name__}: {str(e)}")
+        import traceback
+        print(f"DEBUG - Traceback: {traceback.format_exc()}")
+        
         # Clean up uploaded file if it exists
         if 'filepath' in locals() and os.path.exists(filepath):
             os.remove(filepath)

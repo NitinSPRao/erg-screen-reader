@@ -1,15 +1,18 @@
 # ErgScreenReader
-Reading Erg Screenshots and sending to Google Sheets
+Convert erg rowing machine screenshots into structured workout data using AI, with output to Excel files or Google Sheets.
 
-# Goals
-Using ChatGPT API to convert images into a format that can then be sent to populate into a Google Sheets sheet for data analysis
+## Goals
+Using OpenAI's Vision API to intelligently extract workout metrics from erg screenshots and automatically populate them into structured formats for data analysis and tracking.
 
 ## Features
 
-- **AI-Powered Processing**: Structured parsing using OpenAI's `responses.parse` method with base64 image encoding
-- **Workout Types**: Support for both regular workouts and interval workouts
-- **Excel Reports**: Automatic generation of formatted Excel reports with summary and detailed breakdowns
-- **Web Interface**: Modern web-based interface for easy upload and processing
+- **AI-Powered Processing**: Advanced image analysis using OpenAI's Vision API with structured parsing
+- **Workout Types**: Support for both regular workouts and interval workouts with automatic detection
+- **Multiple Output Formats**: Generate Excel files or create/update Google Sheets
+- **Google Sheets Integration**: Create new sheets or append to existing ones with automatic sharing
+- **Web Interface**: Modern, responsive web interface with drag-and-drop file upload
+- **Batch Processing**: Add multiple workouts to the same spreadsheet for team tracking
+- **Columbia University Theme**: Custom styling for Columbia rowing team
 
 ## Installation
 
@@ -23,13 +26,28 @@ pip install -r requirements.txt
 export OPENAI_API_KEY="your-openai-api-key"
 ```
 
-3. (Optional) Set up Google Sheets integration:
+3. Set up Google Sheets integration:
    - Go to the [Google Cloud Console](https://console.cloud.google.com/)
    - Create a new project or select an existing one
    - Enable the Google Sheets API and Google Drive API
-   - Create credentials (OAuth 2.0 Client ID for Desktop Application)
-   - Download the credentials file and save it as `credentials.json` in the project root
-   - The first time you use Google Sheets, you'll be prompted to authorize the application
+   - Create a service account with the following steps:
+     - Go to "IAM & Admin" > "Service Accounts"
+     - Click "Create Service Account"
+     - Give it a name and description
+     - Click "Create and Continue"
+     - Skip the role assignment (click "Continue")
+     - Click "Done"
+   - Generate credentials for the service account:
+     - Click on the service account you just created
+     - Go to the "Keys" tab
+     - Click "Add Key" > "Create new key"
+     - Choose "JSON" format and click "Create"
+   - Download the JSON credentials file
+   - Place the credentials file in your project directory (e.g., `/Users/yourusername/igneous-aleph-394703-550f3acb3017.json`)
+   - Set the environment variable:
+     ```bash
+     export GOOGLE_CREDENTIALS_PATH="/path/to/your/credentials.json"
+     ```
 
 ## Usage
 
@@ -42,20 +60,22 @@ python run_web.py
 
 Or directly:
 ```bash
-python app.py
+python src/app.py
 ```
 
-Then open your browser and navigate to `http://localhost:5000`
+Then open your browser and navigate to `http://localhost:8080`
 
 **Features:**
-- Drag and drop image upload
+- Drag and drop image upload with file preview
 - Choose between regular and interval workouts
 - Set custom rower names
 - Output to Excel files or Google Sheets
-- Create new spreadsheets or add to existing ones (Excel only)
+- For Excel: Create new spreadsheets or add to existing ones
+- For Google Sheets: Create new sheets or append to existing ones via URL
 - Real-time processing with progress indicators
-- Download generated Excel files or open Google Sheets
-- Modern, responsive interface
+- Download generated Excel files or open Google Sheets directly
+- Modern, responsive interface with Columbia University branding
+- Error handling and validation
 
 **How to use:**
 1. Upload your erg screenshot by dragging and dropping or clicking "Choose File"
@@ -63,9 +83,12 @@ Then open your browser and navigate to `http://localhost:5000`
 3. Enter the rower's name
 4. Choose output format (Excel or Google Sheets)
 5. For Excel: Choose whether to create a new spreadsheet or add to an existing one
-6. For Google Sheets: Optionally enter a custom sheet name
+6. For Google Sheets: 
+   - Create New: Optionally enter a custom sheet name (auto-generates if empty)
+   - Add to Existing: Paste the Google Sheets URL you want to append data to
 7. Click "Process Workout" and wait for the AI to analyze the image
-8. Review the results and download the Excel file or open the Google Sheet
+8. Review the extracted workout data in the results section
+9. Download the Excel file or open the Google Sheet using the provided button
 
 ### Command Line Interface
 
@@ -86,7 +109,7 @@ python src/erg_screen_reader.py workout.png --name "Jane Smith"
 python src/erg_screen_reader.py workout.png --sheets
 
 # Custom Google Sheet name
-python src/erg_screen_reader.py workout.png --sheets --sheet-name "Weekly Training Log"
+python src/erg_screen_reader.py workout.png --sheets --name "John C150"
 
 # Add to existing spreadsheet (appends to summary and creates new breakdown sheet)
 python src/erg_screen_reader.py workout2.png --name "Mike Johnson" --output existing_workouts.xlsx
@@ -96,6 +119,7 @@ python src/erg_screen_reader.py workout2.png --name "Mike Johnson" --output exis
 ```python
 import asyncio
 from src.erg_screen_reader import ErgScreenReader
+from src.google_sheets_service import GoogleSheetsService
 
 async def process_regular_workout():
     reader = ErgScreenReader()
@@ -131,9 +155,47 @@ async def process_interval_workout():
     # Create Excel report
     reader.create_interval_excel_report(summary, list(intervals), "interval_report.xlsx", "John C150")
 
+async def create_google_sheet():
+    reader = ErgScreenReader()
+    sheets_service = GoogleSheetsService()
+    
+    # Process workout
+    receipt_details = await reader.extract_workout_data_ai("erg.png")
+    summary = receipt_details.summary
+    splits = receipt_details.splits
+    
+    # Create Google Sheet
+    sheet_name = sheets_service.generate_sheet_name("John C150")
+    spreadsheet_id = sheets_service.create_spreadsheet(sheet_name)
+    sheets_service.populate_regular_workout(spreadsheet_id, summary, list(splits), "John C150")
+    
+    # Get the URL
+    sheet_url = sheets_service.get_spreadsheet_url(spreadsheet_id)
+    print(f"Google Sheet created: {sheet_url}")
+
+async def append_to_existing_sheet():
+    reader = ErgScreenReader()
+    sheets_service = GoogleSheetsService()
+    
+    # Process workout
+    receipt_details = await reader.extract_workout_data_ai("erg.png")
+    summary = receipt_details.summary
+    splits = receipt_details.splits
+    
+    # Extract spreadsheet ID from existing URL
+    existing_url = "https://docs.google.com/spreadsheets/d/your-spreadsheet-id/edit"
+    spreadsheet_id = sheets_service.extract_spreadsheet_id_from_url(existing_url)
+    
+    # Append to existing sheet
+    sheets_service.append_to_existing_sheet(spreadsheet_id, summary, list(splits), "Jane Smith")
+    
+    print("Data appended to existing Google Sheet")
+
 # Run the async functions
 asyncio.run(process_regular_workout())
 asyncio.run(process_interval_workout())
+asyncio.run(create_google_sheet())
+asyncio.run(append_to_existing_sheet())
 ```
 
 ### Testing
@@ -188,22 +250,95 @@ class Interval:
     rest_time: Optional[str] # e.g., "1:00"
 ```
 
-## Output
+## Output Formats
 
+### Excel Files
 The tool generates formatted Excel reports with the following structure:
 
-### Regular Workout Reports
+**Regular Workout Reports:**
 - **Summary Sheet**: Horizontal layout with rower name, total distance, time, average split, rate, and heart rate (all values in one row)
 - **{Name} Split Breakdown Sheet**: Detailed breakdown of each split with distance, time, pace, rate, and heart rate
 
-### Interval Workout Reports
+**Interval Workout Reports:**
 - **Summary Sheet**: Horizontal layout with rower name, total distance, time, average split, rate, heart rate, total intervals, and rest time (all values in one row)
 - **{Name} Interval Breakdown Sheet**: Detailed breakdown of each interval with distance, time, pace, rate, heart rate, and rest time
 
-### Multi-Person Workouts
+**Multi-Person Workouts:**
 When processing multiple workouts with the same output file:
 - New summary data is appended as rows to the existing Summary sheet
 - Each person gets their own breakdown sheet (e.g., "John C150 Split Breakdown", "Jane Smith Split Breakdown")
 - Existing breakdown sheets are preserved when adding new workouts
 
-The Excel files are automatically formatted and ready for analysis or sharing. The summary sheets use a horizontal format for easy data entry and comparison across multiple workouts.
+### Google Sheets
+The tool creates Google Sheets with similar structure to Excel files:
+
+**New Google Sheets:**
+- Automatically generated with timestamp-based naming: `[Rower Name] - YYYY-MM-DD HH:MM:SS`
+- Publicly accessible with edit permissions (configurable)
+- Same sheet structure as Excel files (Summary + Breakdown sheets)
+
+**Existing Google Sheets:**
+- Appends new workout data to existing Summary sheet
+- Creates new breakdown sheet for each rower
+- Preserves existing data and formatting
+- Supports any Google Sheets URL format
+
+**Google Sheets Features:**
+- Automatic formatting with bold headers
+- Auto-resized columns for optimal viewing
+- Public sharing enabled for team access
+- Direct browser links for immediate access
+
+All output files are automatically formatted and ready for analysis or sharing. The summary sheets use a horizontal format for easy data entry and comparison across multiple workouts.
+
+## Requirements
+
+- Python 3.7+
+- OpenAI API key with GPT-4 Vision access
+- Google Cloud Project with Sheets API and Drive API enabled (for Google Sheets functionality)
+- Service account credentials JSON file (for Google Sheets functionality)
+
+See `requirements.txt` for the complete list of Python dependencies.
+
+## Troubleshooting
+
+### Google Sheets Issues
+
+**"No credentials file found":**
+- Ensure your service account JSON file exists at the specified path
+- Set the `GOOGLE_CREDENTIALS_PATH` environment variable to the correct file path
+- Check that the file has proper read permissions
+
+**"Client secrets must be for a web or installed app":**
+- You're using OAuth2 credentials instead of service account credentials
+- Download service account credentials (JSON) from Google Cloud Console instead
+- Follow the service account setup instructions above
+
+**"Unable to parse range: Summary!A1:F1":**
+- The sheet you're trying to append to doesn't have a "Summary" sheet
+- The tool will automatically use the first available sheet if "Summary" doesn't exist
+- Ensure the Google Sheets URL is correct and accessible
+
+**"Error accessing existing sheet":**
+- Check that the Google Sheets URL is correct and properly formatted
+- Ensure the service account has access to the sheet (sheet should be publicly editable or shared with the service account email)
+- Verify the spreadsheet ID can be extracted from the URL
+
+### Common Issues
+
+**"Processing failed" errors:**
+- Check that your OpenAI API key is set correctly
+- Ensure the uploaded image is clear and contains erg workout data
+- Try with a different image if the current one is unclear or corrupted
+
+**Web interface not loading:**
+- Check that you're navigating to the correct port (8080 by default)
+- Ensure no other application is using the same port
+- Try running `python src/app.py` directly to see error messages
+
+**Excel file download issues:**
+- Check that the `outputs` directory exists and has write permissions
+- Ensure sufficient disk space for file creation
+- Try processing a smaller image if memory is an issue
+
+For additional support, check the debug output in the console when running the web application.

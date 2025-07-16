@@ -96,6 +96,7 @@ function setupFormHandlers() {
     const form = document.getElementById('uploadForm');
     const spreadsheetOptions = document.querySelectorAll('input[name="spreadsheet_option"]');
     const outputFormatOptions = document.querySelectorAll('input[name="output_format"]');
+    const sheetActionOptions = document.querySelectorAll('input[name="sheet_action"]');
     
     form.addEventListener('submit', handleFormSubmit);
     
@@ -105,6 +106,10 @@ function setupFormHandlers() {
     
     outputFormatOptions.forEach(option => {
         option.addEventListener('change', handleOutputFormatChange);
+    });
+    
+    sheetActionOptions.forEach(option => {
+        option.addEventListener('change', handleSheetActionChange);
     });
 }
 
@@ -125,6 +130,19 @@ function handleOutputFormatChange(e) {
         if (existingOption && existingOption.value === 'existing') {
             existingFileSection.classList.remove('d-none');
         }
+    }
+}
+
+function handleSheetActionChange(e) {
+    const newSheetOptions = document.getElementById('newSheetOptions');
+    const existingSheetOptions = document.getElementById('existingSheetOptions');
+    
+    if (e.target.value === 'existing') {
+        newSheetOptions.classList.add('d-none');
+        existingSheetOptions.classList.remove('d-none');
+    } else {
+        newSheetOptions.classList.remove('d-none');
+        existingSheetOptions.classList.add('d-none');
     }
 }
 
@@ -149,7 +167,23 @@ function handleFormSubmit(e) {
         return;
     }
     
+    // Validate Google Sheets URL if "Add to Existing" is selected
+    const outputFormat = formData.get('output_format');
+    const sheetAction = formData.get('sheet_action');
+    const sheetUrl = formData.get('sheet_url');
+    
+    if (outputFormat === 'sheets' && sheetAction === 'existing' && !sheetUrl) {
+        showError('Please provide a Google Sheet URL when adding to existing sheet.');
+        return;
+    }
+    
     formData.append('file', file);
+    
+    // Debug: Log form data
+    console.log('Form submission data:');
+    for (let [key, value] of formData.entries()) {
+        console.log(`${key}: ${value}`);
+    }
     
     // Show loading state
     showLoading(true);
@@ -313,12 +347,12 @@ function generateSplitsTable(splits) {
     splits.forEach((split, index) => {
         html += `
             <tr>
-                <td>${index + 1}</td>
-                <td>${split.distance}</td>
-                <td>${split.time}</td>
-                <td>${split.split}</td>
+                <td>${split.split_number}</td>
+                <td>${split.split_distance}</td>
+                <td>${split.split_time}</td>
+                <td>${split.split_pace}</td>
                 <td>${split.rate}</td>
-                <td>${split.heart_rate || 'N/A'}</td>
+                <td>${split.hr || 'N/A'}</td>
             </tr>
         `;
     });
@@ -355,12 +389,12 @@ function generateIntervalTable(intervals) {
     intervals.forEach((interval, index) => {
         html += `
             <tr>
-                <td>${index + 1}</td>
-                <td>${interval.distance}</td>
-                <td>${interval.time}</td>
-                <td>${interval.split}</td>
+                <td>${interval.interval_number}</td>
+                <td>${interval.interval_distance}</td>
+                <td>${interval.interval_time}</td>
+                <td>${interval.interval_pace}</td>
                 <td>${interval.rate}</td>
-                <td>${interval.heart_rate || 'N/A'}</td>
+                <td>${interval.hr || 'N/A'}</td>
                 <td>${interval.rest_time || 'N/A'}</td>
             </tr>
         `;

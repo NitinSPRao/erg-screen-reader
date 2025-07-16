@@ -385,6 +385,241 @@ class GoogleSheetsService:
         """
         return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
     
+    def extract_spreadsheet_id_from_url(self, url: str) -> str:
+        """
+        Extract spreadsheet ID from a Google Sheets URL.
+        
+        Args:
+            url: Google Sheets URL
+            
+        Returns:
+            Spreadsheet ID
+            
+        Raises:
+            ValueError: If URL format is invalid
+        """
+        import re
+        
+        print(f"DEBUG - Extracting ID from URL: {url}")
+        
+        # Extract spreadsheet ID from various Google Sheets URL formats
+        patterns = [
+            r'/spreadsheets/d/([a-zA-Z0-9-_]+)',
+            r'[&?]id=([a-zA-Z0-9-_]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                spreadsheet_id = match.group(1)
+                print(f"DEBUG - Found spreadsheet ID: {spreadsheet_id}")
+                return spreadsheet_id
+        
+        print(f"DEBUG - No pattern matched for URL: {url}")
+        raise ValueError(f"Could not extract spreadsheet ID from URL: {url}")
+    
+    def append_to_existing_sheet(self, spreadsheet_id: str, summary: Summary, 
+                                splits: List[Split], rower_name: str) -> None:
+        """
+        Append regular workout data to an existing Google Sheet.
+        
+        Args:
+            spreadsheet_id: ID of the existing spreadsheet
+            summary: Workout summary data
+            splits: List of workout splits
+            rower_name: Name of the rower
+        """
+        if not self.service:
+            self.authenticate()
+        
+        try:
+            # Get spreadsheet info to find available sheets
+            spreadsheet_info = self.service.spreadsheets().get(
+                spreadsheetId=spreadsheet_id
+            ).execute()
+            
+            # Find the main sheet name (look for Summary first, then use first sheet)
+            sheet_names = [sheet['properties']['title'] for sheet in spreadsheet_info.get('sheets', [])]
+            print(f"DEBUG - Available sheets: {sheet_names}")
+            
+            if 'Summary' in sheet_names:
+                main_sheet = 'Summary'
+            else:
+                main_sheet = sheet_names[0] if sheet_names else 'Sheet1'
+                print(f"DEBUG - Using main sheet: {main_sheet}")
+            
+            # Check if headers exist on the main sheet
+            try:
+                existing_data = self.service.spreadsheets().values().get(
+                    spreadsheetId=spreadsheet_id,
+                    range=f'{main_sheet}!A1:F1'
+                ).execute()
+                
+                # If no headers exist, add them
+                if not existing_data.get('values'):
+                    headers = [['Rower', 'Total Distance (m)', 'Total Time', 'Average Split', 'Average Rate (SPM)', 'Average HR']]
+                    self.service.spreadsheets().values().update(
+                        spreadsheetId=spreadsheet_id,
+                        range=f'{main_sheet}!A1:F1',
+                        valueInputOption='RAW',
+                        body={'values': headers}
+                    ).execute()
+                
+            except HttpError:
+                # Sheet access error, add headers
+                headers = [['Rower', 'Total Distance (m)', 'Total Time', 'Average Split', 'Average Rate (SPM)', 'Average HR']]
+                self.service.spreadsheets().values().update(
+                    spreadsheetId=spreadsheet_id,
+                    range=f'{main_sheet}!A1:F1',
+                    valueInputOption='RAW',
+                    body={'values': headers}
+                ).execute()
+            
+            # Append summary data
+            summary_row = [rower_name, summary.total_distance, summary.total_time, 
+                           summary.average_split, summary.average_rate, summary.average_hr or 'N/A']
+            
+            print(f"DEBUG - Appending to sheet: {main_sheet}")
+            self.service.spreadsheets().values().append(
+                spreadsheetId=spreadsheet_id,
+                range=f'{main_sheet}!A:F',
+                valueInputOption='RAW',
+                insertDataOption='INSERT_ROWS',
+                body={'values': [summary_row]}
+            ).execute()
+            
+            # Create splits breakdown sheet
+            splits_sheet_title = f"{rower_name} Split Breakdown"
+            self._add_sheet(spreadsheet_id, splits_sheet_title)
+            
+            # Prepare splits data
+            splits_headers = ['Split', 'Distance (m)', 'Time', 'Pace', 'Rate (SPM)', 'HR']
+            splits_values = [splits_headers]
+            
+            for split in splits:
+                splits_values.append([
+                    split.split_number,
+                    split.split_distance,
+                    split.split_time,
+                    split.split_pace,
+                    split.rate,
+                    split.hr or 'N/A'
+                ])
+            
+            # Update splits sheet
+            self.service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{splits_sheet_title}'!A1:F{len(splits_values)}",
+                valueInputOption='RAW',
+                body={'values': splits_values}
+            ).execute()
+            
+        except HttpError as error:
+            raise Exception(f"Error appending to spreadsheet: {error}")
+    
+    def append_interval_to_existing_sheet(self, spreadsheet_id: str, summary: IntervalSummary, 
+                                         intervals: List[Interval], rower_name: str) -> None:
+        """
+        Append interval workout data to an existing Google Sheet.
+        
+        Args:
+            spreadsheet_id: ID of the existing spreadsheet
+            summary: Interval workout summary data
+            intervals: List of workout intervals
+            rower_name: Name of the rower
+        """
+        if not self.service:
+            self.authenticate()
+        
+        try:
+            # Get spreadsheet info to find available sheets
+            spreadsheet_info = self.service.spreadsheets().get(
+                spreadsheetId=spreadsheet_id
+            ).execute()
+            
+            # Find the main sheet name (look for Summary first, then use first sheet)
+            sheet_names = [sheet['properties']['title'] for sheet in spreadsheet_info.get('sheets', [])]
+            print(f"DEBUG - Available sheets: {sheet_names}")
+            
+            if 'Summary' in sheet_names:
+                main_sheet = 'Summary'
+            else:
+                main_sheet = sheet_names[0] if sheet_names else 'Sheet1'
+                print(f"DEBUG - Using main sheet: {main_sheet}")
+            
+            # Check if headers exist on the main sheet
+            try:
+                existing_data = self.service.spreadsheets().values().get(
+                    spreadsheetId=spreadsheet_id,
+                    range=f'{main_sheet}!A1:H1'
+                ).execute()
+                
+                # If no headers exist, add them
+                if not existing_data.get('values'):
+                    headers = [['Rower', 'Total Distance (m)', 'Total Time', 'Average Split', 'Average Rate (SPM)', 
+                               'Average HR', 'Total Intervals', 'Rest Time']]
+                    self.service.spreadsheets().values().update(
+                        spreadsheetId=spreadsheet_id,
+                        range=f'{main_sheet}!A1:H1',
+                        valueInputOption='RAW',
+                        body={'values': headers}
+                    ).execute()
+                
+            except HttpError:
+                # Sheet access error, add headers
+                headers = [['Rower', 'Total Distance (m)', 'Total Time', 'Average Split', 'Average Rate (SPM)', 
+                           'Average HR', 'Total Intervals', 'Rest Time']]
+                self.service.spreadsheets().values().update(
+                    spreadsheetId=spreadsheet_id,
+                    range=f'{main_sheet}!A1:H1',
+                    valueInputOption='RAW',
+                    body={'values': headers}
+                ).execute()
+            
+            # Append summary data
+            summary_row = [rower_name, summary.total_distance, summary.total_time, 
+                           summary.average_split, summary.average_rate, summary.average_hr or 'N/A',
+                           summary.total_intervals, summary.rest_time or 'N/A']
+            
+            print(f"DEBUG - Appending interval to sheet: {main_sheet}")
+            self.service.spreadsheets().values().append(
+                spreadsheetId=spreadsheet_id,
+                range=f'{main_sheet}!A:H',
+                valueInputOption='RAW',
+                insertDataOption='INSERT_ROWS',
+                body={'values': [summary_row]}
+            ).execute()
+            
+            # Create intervals breakdown sheet
+            intervals_sheet_title = f"{rower_name} Interval Breakdown"
+            self._add_sheet(spreadsheet_id, intervals_sheet_title)
+            
+            # Prepare intervals data
+            intervals_headers = ['Interval', 'Distance (m)', 'Time', 'Pace', 'Rate (SPM)', 'HR', 'Rest Time']
+            intervals_values = [intervals_headers]
+            
+            for interval in intervals:
+                intervals_values.append([
+                    interval.interval_number,
+                    interval.interval_distance,
+                    interval.interval_time,
+                    interval.interval_pace,
+                    interval.rate,
+                    interval.hr or 'N/A',
+                    interval.rest_time or 'N/A'
+                ])
+            
+            # Update intervals sheet
+            self.service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{intervals_sheet_title}'!A1:G{len(intervals_values)}",
+                valueInputOption='RAW',
+                body={'values': intervals_values}
+            ).execute()
+            
+        except HttpError as error:
+            raise Exception(f"Error appending to spreadsheet: {error}")
+
     def generate_sheet_name(self, base_name: Optional[str] = None) -> str:
         """
         Generate a sheet name with timestamp.
