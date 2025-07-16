@@ -86,3 +86,4 @@ oauth_credentials.json
 *.pyc
 __pycache__/
 *.png
+*.fit
