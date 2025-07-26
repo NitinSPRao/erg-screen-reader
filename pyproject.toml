@@ -1,0 +1,141 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "erg-screen-reader"
+version = "0.1.0"
+description = "A tool for extracting structured workout data from rowing ergometer screen images"
+authors = [{name = "Nitin Rao", email = "your.email@example.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = ["rowing", "ergometer", "ocr", "workout", "data-extraction"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "openai>=1.0.0",
+    "pandas>=1.5.0",
+    "openpyxl>=3.0.0",
+    "python-dotenv>=0.19.0",
+    "pydantic>=2.0.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "jinja2>=3.1.0",
+    "python-multipart>=0.0.6",
+    "google-auth>=2.0.0",
+    "google-auth-oauthlib>=0.5.0",
+    "google-api-python-client>=2.0.0",
+    "fitparse>=1.2.0",
+    "matplotlib>=3.5.0",
+    "numpy>=1.21.0",
+    "plotly>=5.0.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "httpx>=0.25.0",
+]
+
+[project.scripts]
+erg-reader = "erg_screen_reader.cli:main"
+erg-web = "erg_screen_reader.web:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/erg-screen-reader"
+Repository = "https://github.com/yourusername/erg-screen-reader"
+Issues = "https://github.com/yourusername/erg-screen-reader/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["erg_screen_reader"]
+
+# Ruff configuration
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "W191",  # indentation contains tabs
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+
+# Black configuration
+[tool.black]
+target-version = ['py39']
+include = '\.pyi?$'
+line-length = 88
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "fitparse.*",
+    "google.*",
+    "googleapiclient.*",
+    "plotly.*",
+    "matplotlib.*",
+]
+ignore_missing_imports = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+pythonpath = ["src"]

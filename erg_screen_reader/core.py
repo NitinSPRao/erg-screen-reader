@@ -1,28 +1,22 @@
 """
-Erg Screen Reader
+Erg Screen Reader Core
 
 A tool for extracting structured workout data from rowing ergometer screen images.
-Supports both OCR (Google Cloud Vision) and AI-powered (OpenAI) image processing.
-
-Author: Nitin Rao
+Supports AI-powered (OpenAI) image processing.
 """
 
-import argparse
-import asyncio
 import base64
 import mimetypes
 import os
-import sys
 from pathlib import Path
+from typing import Dict, List, Optional
 
 import pandas as pd
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
-# Local imports
-from .models import ReceiptDetails, IntervalReceiptDetails
-from .prompt_template import BASIC_PROMPT, INTERVAL_PROMPT
-from .google_sheets_service import GoogleSheetsService
+from erg_screen_reader.models import ReceiptDetails, IntervalReceiptDetails
+from erg_screen_reader.prompt_template import BASIC_PROMPT, INTERVAL_PROMPT
 
 # Load environment variables
 load_dotenv()
@@ -46,11 +40,11 @@ class ErgScreenReader:
         Extract workout data from an ergometer image using OpenAI's AI vision.
         
         Args:
-            image_path (str): Path to the ergometer screen image
-            model (str): OpenAI model to use for image analysis
+            image_path: Path to the ergometer screen image
+            model: OpenAI model to use for image analysis
             
         Returns:
-            ReceiptDetails: Structured workout data including summary and splits
+            Structured workout data including summary and splits
             
         Raises:
             FileNotFoundError: If the image file doesn't exist
@@ -92,11 +86,11 @@ class ErgScreenReader:
         Extract interval workout data from an ergometer image using OpenAI's AI vision.
         
         Args:
-            image_path (str): Path to the ergometer screen image
-            model (str): OpenAI model to use for image analysis
+            image_path: Path to the ergometer screen image
+            model: OpenAI model to use for image analysis
             
         Returns:
-            IntervalReceiptDetails: Structured interval workout data including summary and intervals
+            Structured interval workout data including summary and intervals
             
         Raises:
             FileNotFoundError: If the image file doesn't exist
@@ -133,17 +127,15 @@ class ErgScreenReader:
         
         return response.output_parsed
     
-
-    
-    def create_excel_report(self, summary: dict, splits: list, output_filename: str = "output.xlsx", name: str = "John C150") -> None:
+    def create_excel_report(self, summary: Dict, splits: List, output_filename: str = "output.xlsx", name: str = "John C150") -> None:
         """
         Create a well-formatted Excel report with workout data.
         
         Args:
-            summary (dict): Summary workout data
-            splits (list): List of split data dictionaries
-            output_filename (str): Name of the output Excel file
-            name (str): Name of the rower (default: "John C150")
+            summary: Summary workout data
+            splits: List of split data dictionaries
+            output_filename: Name of the output Excel file
+            name: Name of the rower
         """
         # Convert Pydantic models to dictionaries if needed
         summary_dict = self._convert_to_dict(summary)
@@ -169,29 +161,29 @@ class ErgScreenReader:
         
         # Create Excel file with multiple sheets
         with pd.ExcelWriter(output_filename, engine='openpyxl', mode='w') as writer:
-            self._write_summary_sheet(writer, summary_dict, name, existing_summary_data)
-            self._write_splits_sheet(writer, splits_dict, name)
+            unique_name = self._write_summary_sheet(writer, summary_dict, name, existing_summary_data)
+            self._write_splits_sheet(writer, splits_dict, unique_name)
             
             # Write back all existing sheets (except the ones we just wrote)
             for sheet_name, sheet_data in existing_sheets_data.items():
-                if sheet_name != f"{name} Split Breakdown":
+                if sheet_name != f"{unique_name} Split Breakdown":
                     sheet_data.to_excel(writer, sheet_name=sheet_name, index=False)
                     print(f"Preserved existing sheet: {sheet_name}")
         
         # Print success message
         print(f"Excel report created: {output_filename}")
         print(f"  - Summary sheet: {len(summary_dict) if summary_dict else 0} metrics")
-        print(f"  - {name} Split Breakdown sheet: {len(splits_dict)} splits")
+        print(f"  - {unique_name} Split Breakdown sheet: {len(splits_dict)} splits")
     
-    def create_interval_excel_report(self, summary: dict, intervals: list, output_filename: str = "interval_output.xlsx", name: str = "John C150") -> None:
+    def create_interval_excel_report(self, summary: Dict, intervals: List, output_filename: str = "interval_output.xlsx", name: str = "John C150") -> None:
         """
         Create a well-formatted Excel report with interval workout data.
         
         Args:
-            summary (dict): Summary interval workout data
-            intervals (list): List of interval data dictionaries
-            output_filename (str): Name of the output Excel file
-            name (str): Name of the rower (default: "John C150")
+            summary: Summary interval workout data
+            intervals: List of interval data dictionaries
+            output_filename: Name of the output Excel file
+            name: Name of the rower
         """
         # Convert Pydantic models to dictionaries if needed
         summary_dict = self._convert_to_dict(summary)
@@ -217,30 +209,22 @@ class ErgScreenReader:
         
         # Create Excel file with multiple sheets
         with pd.ExcelWriter(output_filename, engine='openpyxl', mode='w') as writer:
-            self._write_interval_summary_sheet(writer, summary_dict, name, existing_summary_data)
-            self._write_intervals_sheet(writer, intervals_dict, name)
+            unique_name = self._write_interval_summary_sheet(writer, summary_dict, name, existing_summary_data)
+            self._write_intervals_sheet(writer, intervals_dict, unique_name)
             
             # Write back all existing sheets (except the ones we just wrote)
             for sheet_name, sheet_data in existing_sheets_data.items():
-                if sheet_name != f"{name} Interval Breakdown":
+                if sheet_name != f"{unique_name} Interval Breakdown":
                     sheet_data.to_excel(writer, sheet_name=sheet_name, index=False)
                     print(f"Preserved existing sheet: {sheet_name}")
         
         # Print success message
         print(f"Interval Excel report created: {output_filename}")
         print(f"  - Summary sheet: {len(summary_dict) if summary_dict else 0} metrics")
-        print(f"  - {name} Interval Breakdown sheet: {len(intervals_dict)} intervals")
+        print(f"  - {unique_name} Interval Breakdown sheet: {len(intervals_dict)} intervals")
     
     def _convert_to_dict(self, obj) -> dict:
-        """
-        Convert Pydantic model or dict to plain dictionary.
-        
-        Args:
-            obj: Object to convert (Pydantic model or dict)
-            
-        Returns:
-            dict: Plain dictionary representation
-        """
+        """Convert Pydantic model or dict to plain dictionary."""
         if hasattr(obj, 'model_dump'):
             return obj.model_dump()
         elif hasattr(obj, 'dict'):
@@ -250,27 +234,53 @@ class ErgScreenReader:
         else:
             return {}
     
-    def _write_summary_sheet(self, writer: pd.ExcelWriter, summary_dict: dict, name: str = "John C150", existing_data: pd.DataFrame = None) -> None:
-        """
-        Write summary data to Excel sheet in horizontal format, appending to existing data if present.
+    def _get_unique_name(self, name: str, existing_data: Optional[pd.DataFrame] = None) -> str:
+        """Generate a unique name by adding a number suffix if the name already exists."""
+        if existing_data is None or existing_data.empty:
+            return name
         
-        Args:
-            writer (pd.ExcelWriter): Excel writer object
-            summary_dict (dict): Summary data dictionary
-            name (str): Name of the rower
-            existing_data (pd.DataFrame): Existing summary data to append to
-        """
+        # Get existing names
+        existing_names = existing_data['Name'].tolist() if 'Name' in existing_data.columns else []
+        
+        # If name doesn't exist, return as is
+        if name not in existing_names:
+            return name
+        
+        # Find the highest number suffix for this base name
+        base_name = name
+        max_suffix = 1
+        
+        for existing_name in existing_names:
+            if existing_name == base_name:
+                continue
+            if existing_name.startswith(f"{base_name} "):
+                suffix_part = existing_name[len(base_name) + 1:]
+                try:
+                    suffix_num = int(suffix_part)
+                    max_suffix = max(max_suffix, suffix_num)
+                except ValueError:
+                    continue
+        
+        # Return the next available number
+        return f"{base_name} {max_suffix + 1}"
+    
+    def _write_summary_sheet(self, writer: pd.ExcelWriter, summary_dict: dict, name: str, existing_data: Optional[pd.DataFrame] = None) -> str:
+        """Write summary data to Excel sheet."""
         if not summary_dict:
-            return
+            return name
         
-        # Create horizontal summary with name as first column
+        # Get unique name to avoid conflicts
+        unique_name = self._get_unique_name(name, existing_data)
+        
+        # Create horizontal summary with unique name as first column
         new_summary_data = {
-            'Name': [name],
+            'Name': [unique_name],
             'Total Distance (m)': [summary_dict.get('total_distance', '')],
             'Total Time': [summary_dict.get('total_time', '')],
             'Average Split': [summary_dict.get('average_split', '')],
             'Average Rate (spm)': [summary_dict.get('average_rate', '')],
-            'Average HR': [summary_dict.get('average_hr', '') if summary_dict.get('average_hr') is not None else '']
+            'Average HR': [summary_dict.get('average_hr', '') if summary_dict.get('average_hr') is not None else ''],
+            'Average Watts': [summary_dict.get('average_watts', '') if summary_dict.get('average_watts') is not None else '']
         }
         
         new_summary_df = pd.DataFrame(new_summary_data)
@@ -284,22 +294,16 @@ class ErgScreenReader:
             
             # Append new data to existing data
             combined_df = pd.concat([existing_data, new_summary_df], ignore_index=True)
-            print(f"Appended new workout data for {name} to existing summary")
+            print(f"Appended new workout data for {unique_name} to existing summary")
         else:
             combined_df = new_summary_df
-            print(f"Created new summary sheet with workout data for {name}")
+            print(f"Created new summary sheet with workout data for {unique_name}")
         
         combined_df.to_excel(writer, sheet_name='Summary', index=False)
+        return unique_name
     
-    def _write_splits_sheet(self, writer: pd.ExcelWriter, splits_dict: list, name: str = "John C150") -> None:
-        """
-        Write splits data to Excel sheet with person's name in title.
-        
-        Args:
-            writer (pd.ExcelWriter): Excel writer object
-            splits_dict (list): List of split data dictionaries
-            name (str): Name of the rower
-        """
+    def _write_splits_sheet(self, writer: pd.ExcelWriter, splits_dict: list, name: str) -> None:
+        """Write splits data to Excel sheet."""
         if not splits_dict:
             return
         
@@ -311,34 +315,31 @@ class ErgScreenReader:
                 'Time': split.get('split_time', ''),
                 'Pace': split.get('split_pace', ''),
                 'Rate (spm)': split.get('rate', ''),
-                'HR': split.get('hr', '') if split.get('hr') is not None else ''
+                'HR': split.get('hr', '') if split.get('hr') is not None else '',
+                'Watts': split.get('watts', '') if split.get('watts') is not None else ''
             })
         
         splits_df = pd.DataFrame(splits_data)
         sheet_name = f"{name} Split Breakdown"
         splits_df.to_excel(writer, sheet_name=sheet_name, index=False)
     
-    def _write_interval_summary_sheet(self, writer: pd.ExcelWriter, summary_dict: dict, name: str = "John C150", existing_data: pd.DataFrame = None) -> None:
-        """
-        Write interval summary data to Excel sheet in horizontal format, appending to existing data if present.
-        
-        Args:
-            writer (pd.ExcelWriter): Excel writer object
-            summary_dict (dict): Summary data dictionary
-            name (str): Name of the rower
-            existing_data (pd.DataFrame): Existing summary data to append to
-        """
+    def _write_interval_summary_sheet(self, writer: pd.ExcelWriter, summary_dict: dict, name: str, existing_data: Optional[pd.DataFrame] = None) -> str:
+        """Write interval summary data to Excel sheet."""
         if not summary_dict:
-            return
+            return name
         
-        # Create horizontal summary with name as first column
+        # Get unique name to avoid conflicts
+        unique_name = self._get_unique_name(name, existing_data)
+        
+        # Create horizontal summary with unique name as first column
         new_summary_data = {
-            'Name': [name],
+            'Name': [unique_name],
             'Total Distance (m)': [summary_dict.get('total_distance', '')],
             'Total Time': [summary_dict.get('total_time', '')],
             'Average Split': [summary_dict.get('average_split', '')],
             'Average Rate (spm)': [summary_dict.get('average_rate', '')],
             'Average HR': [summary_dict.get('average_hr', '') if summary_dict.get('average_hr') is not None else ''],
+            'Average Watts': [summary_dict.get('average_watts', '') if summary_dict.get('average_watts') is not None else ''],
             'Total Intervals': [summary_dict.get('total_intervals', '')],
             'Rest Time': [summary_dict.get('rest_time', '') if summary_dict.get('rest_time') else '']
         }
@@ -354,22 +355,16 @@ class ErgScreenReader:
             
             # Append new data to existing data
             combined_df = pd.concat([existing_data, new_summary_df], ignore_index=True)
-            print(f"Appended new interval workout data for {name} to existing summary")
+            print(f"Appended new interval workout data for {unique_name} to existing summary")
         else:
             combined_df = new_summary_df
-            print(f"Created new summary sheet with interval workout data for {name}")
+            print(f"Created new summary sheet with interval workout data for {unique_name}")
         
         combined_df.to_excel(writer, sheet_name='Summary', index=False)
+        return unique_name
     
-    def _write_intervals_sheet(self, writer: pd.ExcelWriter, intervals_dict: list, name: str = "John C150") -> None:
-        """
-        Write intervals data to Excel sheet with person's name in title.
-        
-        Args:
-            writer (pd.ExcelWriter): Excel writer object
-            intervals_dict (list): List of interval data dictionaries
-            name (str): Name of the rower
-        """
+    def _write_intervals_sheet(self, writer: pd.ExcelWriter, intervals_dict: list, name: str) -> None:
+        """Write intervals data to Excel sheet."""
         if not intervals_dict:
             return
         
@@ -382,6 +377,7 @@ class ErgScreenReader:
                 'Pace': interval.get('interval_pace', ''),
                 'Rate (spm)': interval.get('rate', ''),
                 'HR': interval.get('hr', '') if interval.get('hr') is not None else '',
+                'Watts': interval.get('watts', '') if interval.get('watts') is not None else '',
                 'Rest Time': interval.get('rest_time', '') if interval.get('rest_time') else ''
             })
         
@@ -391,162 +387,9 @@ class ErgScreenReader:
 
 
 def validate_environment() -> None:
-    """
-    Validate that required environment variables are set.
-    
-    Raises:
-        ValueError: If required environment variables are missing
-    """
+    """Validate that required environment variables are set."""
     if not os.getenv('OPENAI_API_KEY'):
         raise ValueError(
             "OPENAI_API_KEY environment variable is required for AI processing. "
             "Please set it with: export OPENAI_API_KEY='your-api-key'"
         )
-
-
-async def main():
-    """
-    Main entry point for the Erg Screen Reader application.
-    
-    Parses command line arguments, processes the image, and generates an Excel report.
-    """
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(
-        description="Extract workout data from rowing ergometer screen images",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s erg.png                                    # Process regular workout with AI
-  %(prog)s erg.png --workout-type interval            # Process as interval workout with AI
-  %(prog)s erg.png --output my_workout.xlsx           # Custom output filename
-  %(prog)s erg.png --name "Jane Smith"                # Custom rower name
-  %(prog)s erg.png --sheets                           # Create Google Sheet instead of Excel
-  %(prog)s erg.png --sheets --sheet-name "Weekly Training" # Custom Google Sheet name
-        """
-    )
-    
-    parser.add_argument(
-        "image_path",
-        type=str,
-        help="Path to the ergometer screen image"
-    )
-    
-    parser.add_argument(
-        "--engine",
-        type=str,
-        choices=["openai"],
-        default="openai",
-        help="Processing engine to use (default: openai)"
-    )
-    
-    parser.add_argument(
-        "--output",
-        type=str,
-        default="output.xlsx",
-        help="Output Excel filename (default: output.xlsx)"
-    )
-    
-    parser.add_argument(
-        "--workout-type",
-        type=str,
-        choices=["regular", "interval"],
-        default="regular",
-        help="Type of workout to process (default: regular)"
-    )
-    
-    parser.add_argument(
-        "--name",
-        type=str,
-        default="John C150",
-        help="Name of the rower (default: John C150)"
-    )
-    
-    parser.add_argument(
-        "--sheets",
-        action="store_true",
-        help="Create a Google Sheet instead of Excel file"
-    )
-    
-    parser.add_argument(
-        "--sheet-name",
-        type=str,
-        help="Name for the Google Sheet (defaults to 'Erg Screen Reader <date/time>')"
-    )
-    
-    args = parser.parse_args()
-    
-    # Initialize the reader
-    reader = ErgScreenReader()
-    
-    try:
-        # Validate environment for AI processing
-        validate_environment()
-        
-        # Process the image based on workout type
-        if args.workout_type == "interval":
-            print(f"Processing interval workout image with AI engine: {args.image_path}")
-            receipt_details = await reader.extract_interval_workout_data_ai(args.image_path)
-            
-            summary = receipt_details.summary
-            intervals = list(receipt_details.intervals)
-            
-            # Display extracted data
-            print(f"\nExtracted Interval Summary: {summary}")
-            print(f"Extracted Intervals: {intervals}")
-            
-            # Generate report based on output type
-            if args.sheets:
-                # Create Google Sheet
-                sheets_service = GoogleSheetsService()
-                sheet_name = args.sheet_name or sheets_service.generate_sheet_name(args.name)
-                
-                print(f"Creating Google Sheet: {sheet_name}")
-                spreadsheet_id = sheets_service.create_spreadsheet(sheet_name)
-                
-                print("Populating Google Sheet with interval workout data...")
-                sheets_service.populate_interval_workout(spreadsheet_id, summary, intervals, args.name)
-                
-                sheet_url = sheets_service.get_spreadsheet_url(spreadsheet_id)
-                print(f"Google Sheet created successfully: {sheet_url}")
-            else:
-                # Generate interval Excel report
-                reader.create_interval_excel_report(summary, intervals, args.output, args.name)
-                print(f"Excel report created: {args.output}")
-            
-        else:  # Regular workout
-            print(f"Processing regular workout image with AI engine: {args.image_path}")
-            receipt_details = await reader.extract_workout_data_ai(args.image_path)
-            
-            summary = receipt_details.summary
-            splits = list(receipt_details.splits)
-            
-            # Display extracted data
-            print(f"\nExtracted Summary: {summary}")
-            print(f"Extracted Splits: {splits}")
-            
-            # Generate report based on output type
-            if args.sheets:
-                # Create Google Sheet
-                sheets_service = GoogleSheetsService()
-                sheet_name = args.sheet_name or sheets_service.generate_sheet_name(args.name)
-                
-                print(f"Creating Google Sheet: {sheet_name}")
-                spreadsheet_id = sheets_service.create_spreadsheet(sheet_name)
-                
-                print("Populating Google Sheet with regular workout data...")
-                sheets_service.populate_regular_workout(spreadsheet_id, summary, splits, args.name)
-                
-                sheet_url = sheets_service.get_spreadsheet_url(spreadsheet_id)
-                print(f"Google Sheet created successfully: {sheet_url}")
-            else:
-                # Generate Excel report
-                reader.create_excel_report(summary, splits, args.output, args.name)
-                print(f"Excel report created: {args.output}")
-        
-    except Exception as e:
-        print(f"Error processing image: {e}")
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

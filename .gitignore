@@ -85,5 +85,18 @@ oauth_credentials.json
 *.log
 *.pyc
 __pycache__/
-*.png
-*.fit
+
+# FIT file analysis outputs
+*.html
+interactive_plot.html
+temp-plot.html
+
+# Keep sample FIT files but ignore user uploads
+# *.fit  # Commented out to keep sample files
+uploads/*.fit
+
+# Images (keep static assets but ignore uploads)
+uploads/*.png
+uploads/*.jpeg
+uploads/*.jpg
+uploads/*.gif

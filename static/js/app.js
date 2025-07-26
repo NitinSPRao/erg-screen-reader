@@ -319,6 +319,15 @@ function showResults(data) {
         `;
     }
     
+    if (summary.average_watts) {
+        html += `
+            <div class="summary-item">
+                <span class="value">${summary.average_watts}</span>
+                <span class="label">Average Watts</span>
+            </div>
+        `;
+    }
+    
     if (workoutType === 'interval' && summary.total_intervals) {
         html += `
             <div class="summary-item">
@@ -364,6 +373,7 @@ function generateSplitsTable(splits) {
                             <th>Split</th>
                             <th>Rate</th>
                             <th>HR</th>
+                            <th>Watts</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -378,6 +388,7 @@ function generateSplitsTable(splits) {
                 <td>${split.split_pace}</td>
                 <td>${split.rate}</td>
                 <td>${split.hr || 'N/A'}</td>
+                <td>${split.watts || 'N/A'}</td>
             </tr>
         `;
     });
@@ -405,6 +416,7 @@ function generateIntervalTable(intervals) {
                             <th>Split</th>
                             <th>Rate</th>
                             <th>HR</th>
+                            <th>Watts</th>
                             <th>Rest</th>
                         </tr>
                     </thead>
@@ -420,6 +432,7 @@ function generateIntervalTable(intervals) {
                 <td>${interval.interval_pace}</td>
                 <td>${interval.rate}</td>
                 <td>${interval.hr || 'N/A'}</td>
+                <td>${interval.watts || 'N/A'}</td>
                 <td>${interval.rest_time || 'N/A'}</td>
             </tr>
         `;
