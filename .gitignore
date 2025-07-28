@@ -100,3 +100,5 @@ uploads/*.png
 uploads/*.jpeg
 uploads/*.jpg
 uploads/*.gif
+
+.claude/
