@@ -2,9 +2,9 @@
 
 A modern Python tool for extracting structured workout data from rowing ergometer screen images using AI, with support for both Excel and Google Sheets output.
 
-## ⭐ Features
+## Features
 
-### 🚣 Erg Screenshot Analysis
+### Erg Screenshot Analysis
 - **AI-Powered Processing**: Advanced image analysis using OpenAI's Vision API with structured parsing
 - **Watts Calculation**: Automatic power calculation using the standard formula: `watts = 2.80/pace³`
 - **Name Deduplication**: Automatic handling of duplicate names (e.g., "John C150", "John C150 2")
@@ -13,7 +13,7 @@ A modern Python tool for extracting structured workout data from rowing ergomete
 - **Web Interface**: Modern, responsive FastAPI web interface with drag-and-drop upload
 - **Batch Processing**: Add multiple workouts to the same spreadsheet for team tracking
 
-### 🏃 FIT File Analysis
+### FIT File Analysis
 - **Smart Activity Detection**: Automatically shows pace for running, speed for cycling
 - **TrainingPeaks-Style Interface**: Multi-panel synchronized graphs with crosshair cursor
 - **Interactive Analysis**: Hover anywhere to see all metrics at that time point
@@ -21,7 +21,7 @@ A modern Python tool for extracting structured workout data from rowing ergomete
 - **Rich Terminal Output**: Beautiful CLI with progress indicators and colored output
 - **Multiple Export Formats**: Interactive HTML, CSV data export, JSON format
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -63,7 +63,7 @@ uv run erg-reader image.png --name "John Doe"
 python scripts/dev.py
 ```
 
-## 📋 Detailed Setup
+## Detailed Setup
 
 ### Environment Variables
 
@@ -85,7 +85,7 @@ GOOGLE_CREDENTIALS_PATH=credentials.json
 4. Create a service account and download the credentials JSON file
 5. Place the credentials file in your project root as `credentials.json`
 
-## 💻 Usage
+## Usage
 
 ### Web Interface
 
@@ -130,7 +130,7 @@ make format    # Format code
 make check     # Run all checks
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 erg-screen-reader/
@@ -150,7 +150,7 @@ erg-screen-reader/
 └── README.md
 ```
 
-## 🔧 Dependencies
+## Dependencies
 
 This project uses modern Python tooling:
 
@@ -162,13 +162,10 @@ This project uses modern Python tooling:
 - **Google APIs**: Google Sheets and Drive integration
 - **Pandas**: Excel file generation and data manipulation
 
-## 🤝 Contributing
+## Contributing
 
 1. Install development dependencies: `make dev`
 2. Run tests: `make test`
 3. Format code: `make format`
 4. Check code quality: `make lint`
 
-## 📝 License
-
-MIT License - see LICENSE file for details.
